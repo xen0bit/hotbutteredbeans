@@ -1,0 +1,87 @@
+# goreleaser v2: `make snapshot` builds every artifact locally; tags run it in CI
+# (.github/workflows/release.yml).
+#
+# Two builds per platform, from the same code, no cgo:
+#   hbb_<version>_<os>_<arch>       slim (~11 MB): fetches the model and ONNX Runtime on first use
+#   hbb-full_<version>_<os>_<arch>  full (~610 MB): both built in, works offline
+#
+# The model is chosen with HBB_MODEL_REPO / HBB_MODEL_REVISION / HBB_MODEL_VARIANT in the
+# environment (empty: hbb.lock.json's pin), exactly as with the Makefile.
+version: 2
+project_name: hbb
+
+before:
+  hooks:
+    - go mod download
+    - go run ./internal/tools/assets model
+    - go run ./internal/tools/assets runtime -platform linux/amd64
+    - go run ./internal/tools/assets runtime -platform linux/arm64
+    - go run ./internal/tools/assets runtime -platform darwin/arm64
+    - go run ./internal/tools/assets runtime -platform windows/amd64
+    - go run ./internal/tools/assets runtime -platform windows/arm64
+
+builds:
+  - &build
+    id: slim
+    main: ./cmd/hbb
+    binary: hbb
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/xen0bit/hotbutteredbeans/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/xen0bit/hotbutteredbeans/internal/buildinfo.Commit={{ .FullCommit }}
+      - -X github.com/xen0bit/hotbutteredbeans/internal/buildinfo.Date={{ .CommitDate }}
+      - -X github.com/xen0bit/hotbutteredbeans/internal/buildinfo.ModelRepo={{ envOrDefault "HBB_MODEL_REPO" "" }}
+      - -X github.com/xen0bit/hotbutteredbeans/internal/buildinfo.ModelRevision={{ envOrDefault "HBB_MODEL_REVISION" "" }}
+      - -X github.com/xen0bit/hotbutteredbeans/internal/buildinfo.ModelVariant={{ envOrDefault "HBB_MODEL_VARIANT" "" }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    # The platforms ONNX Runtime publishes builds for.
+    targets: [linux_amd64_v1, linux_arm64_v8.0, darwin_arm64_v8.0, windows_amd64_v1, windows_arm64_v8.0]
+  - <<: *build
+    id: full
+    tags: [hbb_embed]
+
+archives:
+  - id: slim
+    ids: [slim]
+    name_template: "hbb_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides: [{ goos: windows, formats: [zip] }]
+    files: [README.md, LICENSE*]
+  - id: full
+    ids: [full]
+    name_template: "hbb-full_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides: [{ goos: windows, formats: [zip] }]
+    files: [README.md, LICENSE*, licenses/*]
+
+checksum:
+  name_template: checksums.txt
+
+dockers_v2:
+  - id: hbb
+    ids: [full]
+    dockerfile: Dockerfile
+    images: ["ghcr.io/xen0bit/hbb"]
+    tags: ["{{ .Version }}", "{{ if not .Prerelease }}latest{{ end }}"]
+    platforms: [linux/amd64, linux/arm64]
+    extra_files: [licenses]
+    labels:
+      org.opencontainers.image.title: hbb
+      org.opencontainers.image.description: Rank code by likely security weaknesses (CWE Top 25) with a local model
+      org.opencontainers.image.source: https://github.com/xen0bit/hotbutteredbeans
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:"]
+
+release:
+  footer: |
+    **Which archive?** `hbb-full_*` has the model and ONNX Runtime built in and works offline
+    (~610 MB). `hbb_*` is ~11 MB and downloads both (pinned by sha256) into the cache on first
+    use. Either runs on an NVIDIA GPU when CUDA 13 and cuDNN 9 are present
+    (`hbb runtime fetch --gpu` installs them), else on the CPU. Container: `ghcr.io/xen0bit/hbb:{{ .Version }}`.

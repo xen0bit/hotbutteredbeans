@@ -1,0 +1,19 @@
+# An example .hbb.yaml for a service repository. `hbb config init` writes the full,
+# commented list of settings.
+device: auto                 # GPU when usable, else CPU; HBB_DEVICE=cpu or --device cpu forces the CPU
+
+exclude: [docs/, "**/fixtures/**", "*_test.go", "test_*.py"]
+
+cwe:
+  skip: [CWE-476]            # we only ship memory-safe languages here
+
+diff:
+  top: 15
+  min_p: 0.6
+  compare: true              # report each score's rise against the base
+
+fail_delta: 0.35             # block a commit or a PR when a change raises a score this much
+baseline: .hbb-baseline.json # findings reviewed and accepted (hbb scan --write-baseline)
+
+hook:
+  fetch: true                # let the git hook download the model on first use

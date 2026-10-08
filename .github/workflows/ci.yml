@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Unit and conformance tests on every platform a release ships, natively: windows,
+  # tokenizer, diff parsing, hooks, config. No model needed.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: vet
+        run: |
+          go vet ./...
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: test
+        run: CGO_ENABLED=0 go test ./...
+
+  # The model end to end: tokenizer and logits against Python's, then a real scan and
+  # diff, on each OS family. The model and runtime come from the cache after the first run.
+  model:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      HBB_CACHE_DIR: ${{ github.workspace }}/../hbb-cache
+      HBB_DEVICE: cpu
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../hbb-cache/models
+          key: hbb-model-${{ hashFiles('hbb.lock.json') }}
+      - name: build
+        run: CGO_ENABLED=0 go build -o bin/ ./cmd/hbb
+      - name: doctor
+        run: bin/hbb doctor
+      - name: tests against Python
+        run: |
+          export HBB_TEST_BUNDLE="$(bin/hbb model path)" HBB_TEST_ORT_LIB="$(bin/hbb runtime path)"
+          CGO_ENABLED=0 go test -count=1 ./internal/engine ./internal/ort ./internal/tokenizer
+      - name: scan and diff this repository
+        run: |
+          bin/hbb scan internal/assets --top 5 --content-lines 0
+          bin/hbb diff HEAD~1..HEAD --compare --format llm --max-chars 4000 --also sarif=hbb.sarif
+          test -s hbb.sarif
+
+  # Every release artifact cross-compiles (slim builds; the full ones need the assets).
+  release-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: build --snapshot --clean --id slim --skip=before

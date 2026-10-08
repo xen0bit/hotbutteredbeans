@@ -1,0 +1,18 @@
+# .gitlab-ci.yml: rank a merge request's changes with the hbb container (the model and
+# ONNX Runtime are inside the image, nothing is downloaded).
+hbb:
+  stage: test
+  image:
+    name: ghcr.io/xen0bit/hbb:latest
+    entrypoint: [""]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - hbb diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME...HEAD" --compare
+        --also sarif=hbb.sarif --also llm=hbb-context.xml --also markdown=hbb.md
+  artifacts:
+    when: always
+    paths: [hbb.sarif, hbb-context.xml, hbb.md]
