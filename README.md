@@ -1,4 +1,4 @@
-# hbb: Hot Buttered Beans
+# hbb: [Hot Buttered Beans](https://en.wikipedia.org/wiki/Hunt_the_thimble)
 
 hbb ranks source code by how likely it is to hold one of the
 [CWE Top 25](https://cwe.mitre.org/top25/) weaknesses, with a small encoder model that runs
