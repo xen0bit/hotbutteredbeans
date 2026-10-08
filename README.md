@@ -220,6 +220,15 @@ workflow that feeds it to Claude for an inline review, and uploads SARIF:
 `fetch-depth: 0` so the merge base exists, and cache `~/.cache/hbb` (the model and the
 scores) between runs.
 
+### Driving hbb from another program
+
+`hbb serve --stdio` loads the model once and scores the files a parent names, one JSON
+object per line in and out. It prints a `{"ready":true,...}` line first (model, device,
+window rules, every question with its language limits), then answers each
+`{"id":1,"path":"src/a.c","file":"/abs/src/a.c"}` (or `"text":"..."`) with that file's windows
+and their per-question probabilities, in order. A file with no language is a `skip`, a
+failure an `error`, and the process carries on. pwrq's `invoke_hbb` uses it.
+
 ### Docker
 
 `ghcr.io/xen0bit/hbb` (linux amd64 and arm64) is the full build on Debian slim with git:
