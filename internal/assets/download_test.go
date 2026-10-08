@@ -61,7 +61,12 @@ func TestUnpack(t *testing.T) {
 	var tb bytes.Buffer
 	gz := gzip.NewWriter(&tb)
 	tw := tar.NewWriter(gz)
-	for _, f := range []string{"onnxruntime-linux-x64-1.30.0/lib/libonnxruntime.so.1.30.0", "onnxruntime-linux-x64-1.30.0/include/x.h"} {
+	for _, f := range []string{
+		"onnxruntime-linux-x64-1.30.0/lib/libonnxruntime.so.1.30.0",
+		"onnxruntime-linux-x64-1.30.0/include/x.h",
+		// as in the osx archives: debug symbols named like the library, after it
+		"onnxruntime-linux-x64-1.30.0/lib/libonnxruntime.so.1.30.0.dSYM/Contents/Resources/DWARF/libonnxruntime.so.1.30.0",
+	} {
 		tw.WriteHeader(&tar.Header{Name: f, Mode: 0o644, Size: 2, Typeflag: tar.TypeReg})
 		tw.Write([]byte("ok"))
 	}

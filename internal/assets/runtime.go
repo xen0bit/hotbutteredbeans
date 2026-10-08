@@ -182,7 +182,14 @@ func fetchArchive(ctx context.Context, o *Options, a Archive, dir, goos string) 
 	return filepath.Join(dir, lib), nil
 }
 
-// unpack calls each for the files of a .tgz, .zip or .whl whose base name want accepts.
+// debugSymbols reports whether an archive entry belongs to a macOS .dSYM bundle: the
+// osx archives ship DWARF files that carry the library's own name
+// (libonnxruntime.X.dylib.dSYM/Contents/Resources/DWARF/libonnxruntime.X.dylib) and
+// cannot be loaded.
+func debugSymbols(name string) bool { return strings.Contains(name, ".dSYM/") }
+
+// unpack calls each for the files of a .tgz, .zip or .whl whose base name want
+// accepts, leaving out debug symbols.
 func unpack(archive string, want func(string) bool, each func(name string, r io.Reader) error) error {
 	if strings.HasSuffix(archive, ".tgz") || strings.HasSuffix(archive, ".tar.gz") {
 		f, err := os.Open(archive)
@@ -203,7 +210,7 @@ func unpack(archive string, want func(string) bool, each func(name string, r io.
 			if err != nil {
 				return err
 			}
-			if h.Typeflag == tar.TypeReg && want(path.Base(h.Name)) {
+			if h.Typeflag == tar.TypeReg && !debugSymbols(h.Name) && want(path.Base(h.Name)) {
 				if err := each(path.Base(h.Name), tr); err != nil {
 					return err
 				}
@@ -216,7 +223,7 @@ func unpack(archive string, want func(string) bool, each func(name string, r io.
 	}
 	defer zr.Close()
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() || !want(path.Base(f.Name)) {
+		if f.FileInfo().IsDir() || debugSymbols(f.Name) || !want(path.Base(f.Name)) {
 			continue
 		}
 		r, err := f.Open()
