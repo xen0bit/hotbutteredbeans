@@ -50,6 +50,9 @@ jobs:
     env:
       HBB_CACHE_DIR: ${{ github.workspace }}/../hbb-cache
       HBB_DEVICE: cpu
+      # The runners have 4 vCPUs: skip the two 8,192-token fixtures (minutes each on
+      # the CPU); `make test-model` runs all of them.
+      HBB_TEST_MAX_TOKENS: 2048
     steps:
       - uses: actions/checkout@v5
         with:
@@ -68,7 +71,7 @@ jobs:
       - name: tests against Python
         run: |
           export HBB_TEST_BUNDLE="$(bin/hbb model path)" HBB_TEST_ORT_LIB="$(bin/hbb runtime path)"
-          CGO_ENABLED=0 go test -count=1 ./internal/engine ./internal/ort ./internal/tokenizer
+          CGO_ENABLED=0 go test -count=1 -timeout 30m ./internal/engine ./internal/ort ./internal/tokenizer
       - name: scan and diff this repository
         run: |
           bin/hbb scan internal/assets --top 5 --content-lines 0

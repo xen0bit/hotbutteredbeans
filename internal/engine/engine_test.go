@@ -25,9 +25,10 @@ func TestScoresMatchPython(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer e.Close()
+	run := fx.Run(t)
 	var items []Item
-	for _, w := range fx.Windows {
-		items = append(items, Item{Text: w.Text})
+	for _, i := range run {
+		items = append(items, Item{Text: fx.Windows[i].Text})
 	}
 	logits, st, err := e.Score(context.Background(), items, nil)
 	if err != nil {
@@ -35,9 +36,9 @@ func TestScoresMatchPython(t *testing.T) {
 	}
 	want := fx.ONNX["model_q8.onnx"]
 	worst := 0.0
-	for i := range logits {
-		for q := range logits[i] {
-			worst = math.Max(worst, math.Abs(float64(logits[i][q])-want[i][q]))
+	for k, i := range run {
+		for q := range logits[k] {
+			worst = math.Max(worst, math.Abs(float64(logits[k][q])-want[i][q]))
 		}
 	}
 	t.Logf("%d windows, %d tokens: max |logit - Python| %.2g", st.Windows, st.Tokens, worst)

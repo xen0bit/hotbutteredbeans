@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -63,6 +64,30 @@ func load(t testing.TB, name string, v any) {
 
 func LoadCases(t testing.TB) Cases   { var c Cases; load(t, "cases.json", &c); return c }
 func LoadScores(t testing.TB) Scores { var s Scores; load(t, "scores.json", &s); return s }
+
+// Run is the indices of the score fixtures to run: all of them, or with
+// $HBB_TEST_MAX_TOKENS set, those of at most that many tokens (CI's small runners
+// take minutes per 8,192-token window on the CPU).
+func (s Scores) Run(t testing.TB) []int {
+	limit := 0
+	if v := os.Getenv("HBB_TEST_MAX_TOKENS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			t.Fatalf("HBB_TEST_MAX_TOKENS=%q: %v", v, err)
+		}
+		limit = n
+	}
+	var out []int
+	for i, w := range s.Windows {
+		if limit == 0 || len(w.IDs) <= limit {
+			out = append(out, i)
+		}
+	}
+	if len(out) < len(s.Windows) {
+		t.Logf("%d of %d fixture windows (HBB_TEST_MAX_TOKENS=%d)", len(out), len(s.Windows), limit)
+	}
+	return out
+}
 
 // Data decodes a case file's bytes.
 func Data(t testing.TB, b64 string) []byte {

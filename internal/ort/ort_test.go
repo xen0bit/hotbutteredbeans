@@ -1,11 +1,12 @@
 package ort
 
 import (
-	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/xen0bit/hotbutteredbeans/internal/testutil"
 )
 
 // The logits of the conformance windows (testdata/conformance/scores.json, written by
@@ -13,14 +14,7 @@ import (
 // onnxruntime library) and HBB_TEST_BUNDLE (an exported bundle folder); HBB_TEST_CUDA=1
 // runs on CUDA too.
 
-type fixture struct {
-	Windows []struct {
-		IDs []int64 `json:"ids"`
-	} `json:"windows"`
-	ONNX map[string][][]float64 `json:"onnx_cpu"`
-}
-
-func setup(t *testing.T) (*Library, string, fixture) {
+func setup(t *testing.T) (*Library, string, testutil.Scores) {
 	lib, dir := os.Getenv("HBB_TEST_ORT_LIB"), os.Getenv("HBB_TEST_BUNDLE")
 	if lib == "" || dir == "" {
 		t.Skip("set HBB_TEST_ORT_LIB and HBB_TEST_BUNDLE")
@@ -29,22 +23,15 @@ func setup(t *testing.T) (*Library, string, fixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "conformance", "scores.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fx fixture
-	if err := json.Unmarshal(raw, &fx); err != nil {
-		t.Fatal(err)
-	}
-	return l, dir, fx
+	return l, dir, testutil.LoadScores(t)
 }
 
-func check(t *testing.T, s *Session, fx fixture, want [][]float64, tol float64) {
+func check(t *testing.T, s *Session, fx testutil.Scores, want [][]float64, tol float64) {
 	t.Helper()
 	worst := 0.0
-	for i, w := range fx.Windows {
-		got, err := s.Run(w.IDs)
+	run := fx.Run(t)
+	for _, i := range run {
+		got, err := s.Run(fx.Windows[i].IDs)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,7 +42,7 @@ func check(t *testing.T, s *Session, fx fixture, want [][]float64, tol float64) 
 			worst = math.Max(worst, math.Abs(float64(got[q])-want[i][q]))
 		}
 	}
-	t.Logf("max |logit - Python ORT CPU| = %.2g over %d windows", worst, len(fx.Windows))
+	t.Logf("max |logit - Python ORT CPU| = %.2g over %d windows", worst, len(run))
 	if worst > tol {
 		t.Errorf("logits differ by %.3g (tolerance %.g)", worst, tol)
 	}
