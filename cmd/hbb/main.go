@@ -69,6 +69,6 @@ cache. It runs on the GPU when a usable NVIDIA one is found, else the CPU.`,
 	root.SetVersionTemplate("hbb {{.Version}}\n")
 	g.register(root)
 	root.AddCommand(scanCmd(g), diffCmd(g), hookCmd(g), modelCmd(g), runtimeCmd(g), doctorCmd(g),
-		configCmd(g), versionCmd(g), windowsCmd(g))
+		configCmd(g), versionCmd(g), windowsCmd(g), serveCmd(g))
 	return root
 }
