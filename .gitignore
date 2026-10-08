@@ -1,0 +1,7 @@
+# fetched by `make full` / goreleaser for embedding
+/internal/embedded/model/
+/internal/embedded/runtime/
+/dist/
+/bin/
+/hbb
+/hbb.exe

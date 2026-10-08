@@ -1,0 +1,77 @@
+# .github/workflows/hbb-review.yml: hbb ranks what a pull request changed, and an LLM
+# reviews the windows it flags. hbb is fast and local; the LLM reads only what hbb
+# ranked first, with the scores as hints, and writes the review.
+#
+# Needs a repository secret ANTHROPIC_API_KEY. Without the LLM step it still uploads
+# SARIF (code scanning annotations) and writes a job summary.
+name: hbb review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  id-token: write
+
+env:
+  HBB_VERSION: v0.1.0
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # hbb diff needs the base branch's history
+
+      - name: install hbb
+        run: |
+          v="${HBB_VERSION#v}"
+          curl -sSfL "https://github.com/xen0bit/hotbutteredbeans/releases/download/${HBB_VERSION}/hbb_${v}_linux_amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin hbb
+          hbb version
+
+      # The slim build fetches the model (~600 MB) once; keep it, and the score cache,
+      # between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/hbb
+          key: hbb-${{ env.HBB_VERSION }}-${{ github.base_ref }}
+          restore-keys: hbb-${{ env.HBB_VERSION }}-
+
+      - name: rank the change
+        run: |
+          hbb diff "origin/${{ github.base_ref }}...HEAD" --compare \
+            --format llm --max-chars 60000 -o hbb-context.xml \
+            --also sarif=hbb.sarif --also markdown=hbb.md
+          cat hbb.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: hbb.sarif
+          category: hbb
+
+      - name: LLM review of the flagged windows
+        if: hashFiles('hbb-context.xml') != ''
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are reviewing pull request #${{ github.event.pull_request.number }} for security.
+            hbb, a local classifier, ranked the code this change touched by how likely it is
+            to hold each CWE Top 25 weakness; its report is in hbb-context.xml. Read its
+            <about> section first.
+
+            For each <window> in the report, highest-ranked first:
+            1. Read the code (and the surrounding file if you need more context).
+            2. Decide whether a weakness the scores point at is real and reachable, paying
+               most attention to findings whose p rose against p_before_change.
+            3. Only for real issues: leave an inline comment on the changed line naming the
+               CWE, how it could be exploited, and the fix.
+
+            Then post one summary comment listing what you confirmed and what you dismissed
+            (one line each, with the reason). Do not report a finding only because hbb
+            scored it high.
+          claude_args: --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*)"

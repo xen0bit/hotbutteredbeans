@@ -1,0 +1,7 @@
+# .pre-commit-config.yaml (https://pre-commit.com)
+repos:
+  - repo: https://github.com/xen0bit/hotbutteredbeans
+    rev: v0.1.0
+    hooks:
+      - id: hbb            # built from source by pre-commit; or hbb-system for the hbb on PATH
+      # - id: hbb-pre-push # install with: pre-commit install --hook-type pre-push
