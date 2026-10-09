@@ -19,6 +19,9 @@ COPY licenses /usr/share/doc/hbb/licenses
 ENV HBB_CACHE_DIR=/var/cache/hbb
 RUN mkdir -p /var/cache/hbb && hbb runtime path && chmod -R a+rwX /var/cache/hbb
 
+# `hbb serve --listen :8140` (see the README) answers here
+EXPOSE 8140
+
 WORKDIR /src
 ENTRYPOINT ["hbb"]
 CMD ["--help"]
