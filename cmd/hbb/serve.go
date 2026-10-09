@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,6 +58,7 @@ type serveQuestion struct {
 
 func serveCmd(g *globals) *cobra.Command {
 	var stdio bool
+	var hl httpListen
 	cmd := &cobra.Command{
 		Use:   "serve --stdio",
 		Short: "Score files for another program: JSON lines in, JSON lines out",
@@ -74,8 +76,16 @@ on. Only questions asked of the file's language appear in p. Diagnostics go to s
 stdout. It exits when stdin closes.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !stdio {
-				return fmt.Errorf("serve speaks on stdin and stdout only; pass --stdio")
+			switch {
+			case stdio && hl.addr != "":
+				return fmt.Errorf("pass --stdio or --listen, not both")
+			case !stdio && hl.addr == "":
+				return fmt.Errorf("pass --stdio (JSON lines on stdin and stdout) or --listen host:port (HTTP)")
+			}
+			if hl.addr != "" {
+				if err := hl.check(); err != nil {
+					return err
+				}
 			}
 			s, err := g.session(cmd, "")
 			if err != nil {
@@ -91,22 +101,16 @@ stdout. It exits when stdin closes.`,
 				return err
 			}
 			defer e.Close()
-			b := e.Bundle()
+			ready := readyDoc(m.Ref.String(), e)
+			if hl.addr != "" {
+				return hl.serve(ctx, ready, func(ctx context.Context, req *serveRequest) serveResponse {
+					return s.serveOne(ctx, e, req)
+				})
+			}
 
 			out := json.NewEncoder(os.Stdout)
 			out.SetEscapeHTML(false)
-			qs := map[string]serveQuestion{}
-			labels := append([]string(nil), b.Labels...)
-			sort.Strings(labels)
-			for _, l := range labels {
-				lim := b.Limits[l]
-				qs[l] = serveQuestion{CWE: scan.CWE(l), Title: scan.Title(l), Q: b.Questions[l],
-					Langs: lim.Langs, NotLangs: lim.NotLangs}
-			}
-			if err := out.Encode(map[string]any{
-				"ready": true, "version": buildinfo.Ver(), "model": m.Ref.String(),
-				"device": string(e.Device), "window": b.Window, "labels": labels, "questions": qs,
-			}); err != nil {
+			if err := out.Encode(ready); err != nil {
 				return err
 			}
 
@@ -119,7 +123,7 @@ stdout. It exits when stdin closes.`,
 					if jerr := json.Unmarshal(line, &req); jerr != nil {
 						resp = serveResponse{Error: "bad request: " + jerr.Error()}
 					} else {
-						resp = s.serveOne(cmd, e, &req)
+						resp = s.serveOne(ctx, e, &req)
 						resp.ID = req.ID
 					}
 					if werr := out.Encode(resp); werr != nil {
@@ -139,12 +143,13 @@ stdout. It exits when stdin closes.`,
 		},
 	}
 	cmd.Flags().BoolVar(&stdio, "stdio", false, "speak the JSON-lines protocol on stdin and stdout")
+	hl.flags(cmd)
 	return cmd
 }
 
 // serveOne cuts and scores one file. Windows are the model's own (the same cut as
 // scan), so a caller's From and To are the chunker's and the model cannot disagree.
-func (s *session) serveOne(cmd *cobra.Command, e *engine.Engine, req *serveRequest) serveResponse {
+func (s *session) serveOne(ctx context.Context, e *engine.Engine, req *serveRequest) serveResponse {
 	b := e.Bundle()
 	path := filepath.ToSlash(req.Path)
 	r := serveResponse{Path: path}
@@ -183,7 +188,7 @@ func (s *session) serveOne(cmd *cobra.Command, e *engine.Engine, req *serveReque
 		r.Skip = "empty"
 		return r
 	}
-	res, st, err := scan.Score(cmd.Context(), e, targets, false, nil)
+	res, st, err := scan.Score(ctx, e, targets, false, nil)
 	if err != nil {
 		r.Error = err.Error()
 		return r
@@ -194,4 +199,22 @@ func (s *session) serveOne(cmd *cobra.Command, e *engine.Engine, req *serveReque
 	}
 	r.Lines = r.Windows[len(r.Windows)-1].To
 	return r
+}
+
+// readyDoc is what a caller learns about the model before it asks anything: on stdio
+// the first line, over HTTP GET /v1/info.
+func readyDoc(model string, e *engine.Engine) map[string]any {
+	b := e.Bundle()
+	qs := map[string]serveQuestion{}
+	labels := append([]string(nil), b.Labels...)
+	sort.Strings(labels)
+	for _, l := range labels {
+		lim := b.Limits[l]
+		qs[l] = serveQuestion{CWE: scan.CWE(l), Title: scan.Title(l), Q: b.Questions[l],
+			Langs: lim.Langs, NotLangs: lim.NotLangs}
+	}
+	return map[string]any{
+		"ready": true, "version": buildinfo.Ver(), "model": model,
+		"device": string(e.Device), "window": b.Window, "labels": labels, "questions": qs,
+	}
 }

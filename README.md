@@ -229,6 +229,26 @@ window rules, every question with its language limits), then answers each
 and their per-question probabilities, in order. A file with no language is a `skip`, a
 failure an `error`, and the process carries on. pwrq's `invoke_hbb` uses it.
 
+**On another machine (HTTP).** `hbb serve --listen host:port` speaks the same protocol over
+HTTP, so the model can run on a GPU host while the program asking stays elsewhere:
+
+- `GET /v1/info`: the ready document, plus `protocol` and `max_body`.
+- `POST /v1/score`: one request in, one response out, the same JSON as stdio. Send `text`;
+  `file` is refused, because the server never reads a path a client names.
+- `GET /healthz`: 200 once the model is loaded.
+
+A token is required unless the address is loopback (`--token-file`, or `HBB_SERVE_TOKEN`;
+clients send `Authorization: Bearer ...`). Source code crosses this link, so keep it on a
+private network or use `--tls-cert`/`--tls-key` (or a reverse proxy). Requests are scored one at a
+time; `--max-body` (default 8 MiB) caps a request.
+
+```sh
+docker run --rm --gpus all -v hbb-cache:/var/cache/hbb -e HBB_SERVE_TOKEN -p 8140:8140 \
+  ghcr.io/xen0bit/hbb serve --listen :8140
+```
+
+For the GPU, fetch its ONNX Runtime once: `hbb runtime fetch --gpu` (into the same cache).
+
 ### Docker
 
 `ghcr.io/xen0bit/hbb` (linux amd64 and arm64) is the full build on Debian slim with git:
